@@ -3,7 +3,7 @@ id: pf-p0c5asg
 title: Write the code changes each session makes as patches against day 0
 category: story
 seq: 30
-needs: [pf-0ytxfev]
+needs: [pf-0ytxfev, meshwork-demo-notes-sync#sy-cbnfwt3, meshwork-demo-notes-cli#nt-4gtpn48]
 verify: "all(exists story/patches/1a-cli-reenact.patch, exists story/patches/2b-sync-hlc.patch, exists story/patches/3c-cli-label-observed.patch)"
 status: open
 created: 2026-10-02T17:12Z
