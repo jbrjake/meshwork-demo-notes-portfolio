@@ -6,6 +6,7 @@ seq: 20
 verify: "all(exists story/fixtures/gate-rewrite/laptop-changes.log, exists story/fixtures/gate-rewrite/phone-changes.log)"
 status: open
 created: 2026-10-02T17:12Z
+needs: [meshwork-demo-notes-sync#sy-80ke7zy]
 ---
 `story/fixture-gen/` is a small crate on notesync v0.1.0, by git tag. It drives a laptop replica and a phone replica with `ManualClock`s and writes their change logs to `story/fixtures/gate-rewrite/`.
 
