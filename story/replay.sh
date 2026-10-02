@@ -55,8 +55,13 @@ unset CARGO_TARGET_DIR RUSTFLAGS RUSTDOCFLAGS CARGO_BUILD_RUSTFLAGS
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/notes-story.XXXXXX")
 TEXT=$WORK/text
 LAST=$WORK/last.out
+FINISHED=
 cleanup() {
+  local rc=$?
+  # bash 3.2 reports 0 here after a `set -u` exit, so an unfinished run fails.
+  if [ -z "$FINISHED" ] && [ "$rc" -eq 0 ]; then rc=1; fi
   if [ -n "$KEEP" ]; then echo "kept $WORK"; else rm -rf "$WORK"; fi
+  exit "$rc"
 }
 trap cleanup EXIT
 
@@ -201,9 +206,11 @@ lint_clean() {
 push() {
   [ "$MODE" = record ] || return 0
   local repo=$1; shift
-  local force=()
-  if [ -n "$RERECORD" ]; then force=(--force); fi
-  git -C "$WORK/$repo" push -q "${force[@]}" origin main "$@"
+  if [ -n "$RERECORD" ]; then
+    git -C "$WORK/$repo" push -q --force origin main "$@"
+  else
+    git -C "$WORK/$repo" push -q origin main "$@"
+  fi
   echo "(pushed $repo: main $*)"
 }
 
@@ -543,3 +550,4 @@ beat3
 epilogue
 record_finish
 banner "Done"
+FINISHED=1
