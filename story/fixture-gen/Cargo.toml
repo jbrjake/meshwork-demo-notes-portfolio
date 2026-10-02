@@ -1,0 +1,16 @@
+[package]
+name = "fixture-gen"
+version = "0.0.0"
+edition = "2021"
+description = "Writes the gate-rewrite fixture: two devices' change logs after the reported lost edit."
+publish = false
+
+[dependencies]
+notesync = { package = "meshwork-demo-notes-sync", git = "https://github.com/jbrjake/meshwork-demo-notes-sync", tag = "v0.1.0" }
+
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = false

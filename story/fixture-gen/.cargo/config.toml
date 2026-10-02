@@ -1,0 +1,6 @@
+# Lint flags live here, never in a script's environment: RUSTFLAGS is part of
+# every unit's fingerprint, so a script that exported it would keep a second
+# copy of the build.
+[build]
+rustflags = ["-D", "warnings"]
+rustdocflags = ["-D", "warnings"]
