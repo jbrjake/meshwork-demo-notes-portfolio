@@ -1,0 +1,17 @@
+# The demo's registry: name → remote. Registry names equal repo names, so a
+# cross-repo ref reads meshwork-demo-notes-sync#sy-…. Order is the
+# `portfolio next` fallback order. Checkouts default to
+# ~/Documents/code/<name>; per-machine paths live in the gitignored
+# repos.local.toml, under [paths].
+
+[[repo]]
+name = "meshwork-demo-notes-portfolio"   # this repo: the registry and the story
+remote = "https://github.com/jbrjake/meshwork-demo-notes-portfolio.git"
+
+[[repo]]
+name = "meshwork-demo-notes-cli"         # the notes app
+remote = "https://github.com/jbrjake/meshwork-demo-notes-cli.git"
+
+[[repo]]
+name = "meshwork-demo-notes-sync"        # the replication library the app syncs through
+remote = "https://github.com/jbrjake/meshwork-demo-notes-sync.git"
