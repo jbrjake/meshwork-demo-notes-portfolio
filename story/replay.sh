@@ -526,7 +526,7 @@ epilogue() {
 record_finish() {
   [ "$MODE" = record ] || return 0
   local ver
-  ver=$("$MW" --version 2>/dev/null || cat "$WORK/$CLI/.meshwork-version")
+  ver=$("$MW" --version 2>/dev/null | sed 's/^meshwork //' || cat "$WORK/$CLI/.meshwork-version")
   cat >"$STORY/recording.md" <<EOF
 # Recording
 
