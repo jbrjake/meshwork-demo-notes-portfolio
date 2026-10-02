@@ -5,7 +5,7 @@ category: story
 seq: 30
 needs: [pf-0ytxfev, meshwork-demo-notes-sync#sy-cbnfwt3, meshwork-demo-notes-cli#nt-4gtpn48]
 verify: "all(exists story/patches/1a-cli-reenact.patch, exists story/patches/2b-sync-hlc.patch, exists story/patches/3c-cli-label-observed.patch)"
-status: open
+status: done
 created: 2026-10-02T17:12Z
 ---
 One patch per code step under `story/patches/`, named `<beat><step>-<repo>-<slug>.patch`:
@@ -19,3 +19,5 @@ Each applies cleanly to the tree its session leaves. Task ids appear only as pla
 
 ## log
 - 2026-10-02T17:12Z created
+- 2026-10-02T17:34Z open→doing — claimed by claude (602c381b-d7db-491e-8df6-85682e6152ed)
+- 2026-10-02T17:39Z doing→done — verify exit 0 @ 693748b+1
