@@ -1,0 +1,1 @@
+Not sync order: pull-first changed nothing and the close was refused (comments on the case). The laptop's clock runs about five minutes fast and LWW on wall-clock time let its typo fix beat a rewrite made after it; the evidence is attached to the case. When notesync answers, move to its release; the contract test and the case's re-enactment should both go green.

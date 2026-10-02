@@ -1,0 +1,1 @@
+Reopened: on notesync v0.2.0 a change's timestamp is a hybrid logical clock reading that "can run ahead of any device's clock" (PROTOCOL.md, Change timestamps), and this label still reads it. After the phone stores the laptop's fast-stamped change, its own rewrite reads "edited in 5 minutes". The list should read `observed_at`, when this device stored the change.

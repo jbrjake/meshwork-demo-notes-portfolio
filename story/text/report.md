@@ -1,0 +1,1 @@
+At the gate I fixed a typo in a note on my laptop and let both devices sync. After takeoff I rewrote the note on my phone. When I landed and synced, my rewrite was gone and the laptop's version won. Both devices' change logs are in reports/gate-rewrite/.

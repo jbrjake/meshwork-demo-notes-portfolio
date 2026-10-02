@@ -1,0 +1,1 @@
+Wrong: notesync merges last-writer-wins on timestamps, so push/pull order cannot matter. The phone stored the laptop's typo fix before it wrote the rewrite, but the laptop's clock runs about five minutes fast, so the fix carries the later stamp and wins. Ordering is notesync's protocol, not ours.
