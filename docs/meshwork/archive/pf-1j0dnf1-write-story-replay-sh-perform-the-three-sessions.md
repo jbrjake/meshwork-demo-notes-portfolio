@@ -5,7 +5,7 @@ category: story
 seq: 50
 needs: [pf-p0c5asg, pf-57vxppd]
 verify: "all(exists story/replay.sh, contains story/replay.sh /mw_refused/)"
-status: open
+status: done
 created: 2026-10-02T17:12Z
 ---
 `story/replay.sh` performs the sessions with the real binary. Both modes share one implementation.
@@ -19,3 +19,8 @@ created: 2026-10-02T17:12Z
 
 ## log
 - 2026-10-02T17:12Z created
+- 2026-10-02T17:41Z open→doing — claimed by claude (602c381b-d7db-491e-8df6-85682e6152ed)
+- 2026-10-02T17:46Z doing→done — verify exit 0 @ 593377b+1
+
+## comments
+- 2026-10-02T17:46Z [claude (602c381b-d7db-491e-8df6-85682e6152ed)] Replayed end to end on meshwork v0.5.2 with --from ~/Documents/code --local-sync, exit 0. Every expect held: the case's close refused after pull-first, the red-checks, the ask in sync's prime, S4 as the one re-open candidate, the answered ask with notes-1's handoff, the portfolio audit's stale (1) and re-open candidates (1), the label reading 'edited in 5 minutes' before the fix, and lint 0 per session. prime truncates the asks-out line before the answer's gid, so Beat 3 asserts the full 'answered-by … (done)' on show, which prints it whole. Code commits land before each close, so closes check a committed tree; reports/ stays untracked, as the user left it, and v0.5.2 notes it on each close.
