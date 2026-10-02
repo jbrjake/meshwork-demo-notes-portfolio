@@ -515,10 +515,11 @@ beat3() {
 epilogue() {
   banner "Epilogue · the record"
   cd "$WORK/$CLI"
-  say "No session. Every status change since the report, across the portfolio:"
-  mw portfolio q "SELECT gid, date, to_status, note FROM log WHERE to_status IS NOT NULL AND date >= '$START' ORDER BY date, gid, ord"
+  local story="(gid LIKE '$CLI#%' OR gid LIKE '$SYNC#%')"
+  say "No session. Every status change since the report, across the app and the library:"
+  mw portfolio q "SELECT gid, date, to_status, note FROM log WHERE to_status IS NOT NULL AND date >= '$START' AND $story ORDER BY date, gid, ord"
   say "And what the sessions said, including the smoking gun and its retraction:"
-  mw portfolio q "SELECT gid, author, text FROM comments WHERE date >= '$START' ORDER BY date, gid, ord"
+  mw portfolio q "SELECT gid, author, text FROM comments WHERE date >= '$START' AND $story ORDER BY date, gid, ord"
   expect "Smoking gun"
   expect "Wrong: notesync"
 }
