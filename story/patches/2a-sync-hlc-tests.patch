@@ -1,0 +1,232 @@
+diff --git a/tests/notesync/hlc.rs b/tests/notesync/hlc.rs
+new file mode 100644
+index 0000000..2af312e
+--- /dev/null
++++ b/tests/notesync/hlc.rs
+@@ -0,0 +1,99 @@
++use crate::{fields, scratch};
++use notesync::{log, ManualClock, Replica};
++use std::fs;
++
++const MINUTE: u64 = 60_000;
++const T: u64 = 1_790_000_000_000;
++
++#[test]
++fn change_sorts_after_everything_its_author_saw() {
++    let fast = ManualClock::new(T + 5 * MINUTE);
++    let truth = ManualClock::new(T);
++    let dir = scratch("change_sorts_after_everything_its_author_saw");
++    let mut laptop = Replica::open(&dir.join("laptop"), &fast).unwrap();
++    let mut phone = Replica::open(&dir.join("phone"), &truth).unwrap();
++
++    let fix = laptop
++        .put("note", fields(&[("body", "typo fixed")]))
++        .unwrap();
++    phone.apply(laptop.changes_since(&phone.seen())).unwrap();
++    truth.advance(MINUTE);
++    let rewrite = phone.put("note", fields(&[("body", "rewritten")])).unwrap();
++
++    assert!(
++        rewrite.stamp() > fix.stamp(),
++        "{:?} must sort after {:?}",
++        rewrite.stamp(),
++        fix.stamp()
++    );
++    assert_eq!(rewrite.stamp(), (T + 5 * MINUTE, 1));
++
++    laptop.apply(phone.changes_since(&laptop.seen())).unwrap();
++    for replica in [&laptop, &phone] {
++        assert_eq!(replica.doc("note").unwrap().fields["body"], "rewritten");
++    }
++
++    truth.set(T + 10 * MINUTE);
++    let later = phone.put("note", fields(&[("body", "later")])).unwrap();
++    assert_eq!(
++        later.stamp(),
++        (T + 10 * MINUTE, 0),
++        "a clock past everything seen stamps its own time"
++    );
++}
++
++#[test]
++fn v1_log_reads_with_counter_zero() {
++    let dir = scratch("v1_log_reads_with_counter_zero").join("phone");
++    fs::create_dir_all(&dir).unwrap();
++    fs::write(dir.join("device"), "phone\n").unwrap();
++    fs::write(
++        dir.join("changes.log"),
++        "laptop\t1\t1000\tnote\tbody=v1\nphone\t1\t900\tnote\tbody=v2\n",
++    )
++    .unwrap();
++
++    for change in log::read(&dir.join("changes.log")).unwrap() {
++        assert_eq!(change.counter, 0);
++    }
++
++    let mut phone = Replica::open(&dir, ManualClock::new(500)).unwrap();
++    let doc = phone.doc("note").unwrap();
++    assert_eq!(doc.fields["body"], "v1");
++    assert_eq!(
++        (doc.timestamp_ms, doc.counter, doc.observed_at_ms()),
++        (1000, 0, 1000)
++    );
++
++    let next = phone.put("note", fields(&[("body", "v3")])).unwrap();
++    assert_eq!(next.stamp(), (1000, 1), "sorts after the v0.1 changes");
++    assert_eq!(phone.doc("note").unwrap().fields["body"], "v3");
++}
++
++#[test]
++fn observed_at_is_local() {
++    let fast = ManualClock::new(T + 5 * MINUTE);
++    let truth = ManualClock::new(T + 2 * MINUTE);
++    let dir = scratch("observed_at_is_local");
++    let mut laptop = Replica::open(&dir.join("laptop"), &fast).unwrap();
++    let mut phone = Replica::open(&dir.join("phone"), &truth).unwrap();
++
++    laptop.put("note", fields(&[("body", "v1")])).unwrap();
++    phone.apply(laptop.changes_since(&phone.seen())).unwrap();
++
++    let on_phone = phone.doc("note").unwrap();
++    assert_eq!(on_phone.timestamp_ms, T + 5 * MINUTE);
++    assert_eq!(on_phone.observed_at_ms(), T + 2 * MINUTE);
++    assert_eq!(laptop.doc("note").unwrap().observed_at_ms(), T + 5 * MINUTE);
++    assert_eq!(
++        on_phone,
++        laptop.doc("note").unwrap(),
++        "replicas agree on a document whatever they observed"
++    );
++
++    let reopened = Replica::open(&dir.join("phone"), ManualClock::new(0)).unwrap();
++    assert_eq!(
++        reopened.doc("note").unwrap().observed_at_ms(),
++        T + 2 * MINUTE
++    );
++}
+diff --git a/tests/notesync/log.rs b/tests/notesync/log.rs
+index da6aa39..36bfcfa 100644
+--- a/tests/notesync/log.rs
++++ b/tests/notesync/log.rs
+@@ -1,53 +1,69 @@
+ use crate::{change, fields, scratch};
+-use notesync::{log, Change};
++use notesync::log::{self, Entry};
++use notesync::Change;
+ 
+ #[test]
+ fn log_round_trips() {
+-    let first = Change {
+-        device: "laptop".to_string(),
+-        seq: 1,
+-        timestamp_ms: 1_790_000_000_123,
+-        doc: "laptop-1".to_string(),
+-        fields: fields(&[
+-            ("title", "Keynote outline"),
+-            ("body", "Open with the demo."),
+-        ]),
++    let first = Entry {
++        change: Change {
++            device: "laptop".to_string(),
++            seq: 1,
++            timestamp_ms: 1_790_000_000_123,
++            counter: 3,
++            doc: "laptop-1".to_string(),
++            fields: fields(&[
++                ("title", "Keynote outline"),
++                ("body", "Open with the demo."),
++            ]),
++        },
++        observed_ms: 1_790_000_000_500,
++    };
++    let second = Entry {
++        change: change(
++            "phone",
++            4,
++            1_790_000_060_000,
++            "laptop-1",
++            "Open with the story.",
++        ),
++        observed_ms: 1_790_000_061_000,
+     };
+-    let second = change(
+-        "phone",
+-        4,
+-        1_790_000_060_000,
+-        "laptop-1",
+-        "Open with the story.",
+-    );
+ 
+     assert_eq!(log::decode(&log::encode(&first)).unwrap(), first);
+ 
+     let path = scratch("log_round_trips").join("changes.log");
+     log::append(&path, &first).unwrap();
+     log::append(&path, &second).unwrap();
+-    assert_eq!(log::read(&path).unwrap(), vec![first, second]);
++    assert_eq!(
++        log::read_entries(&path).unwrap(),
++        vec![first.clone(), second.clone()]
++    );
++    assert_eq!(log::read(&path).unwrap(), vec![first.change, second.change]);
+ }
+ 
+ #[test]
+ fn log_escapes_separators() {
+     let awkward = "tab\there; a=b, back\\slash\nand a new line";
+-    let change = Change {
+-        device: "my\tphone".to_string(),
+-        seq: 2,
+-        timestamp_ms: 7,
+-        doc: "a;b=c".to_string(),
+-        fields: fields(&[("k=;\\", awkward), ("", ""), ("empty", "")]),
++    let entry = Entry {
++        change: Change {
++            device: "my\tphone".to_string(),
++            seq: 2,
++            timestamp_ms: 7,
++            counter: 0,
++            doc: "a;b=c".to_string(),
++            fields: fields(&[("k=;\\", awkward), ("", ""), ("empty", "")]),
++        },
++        observed_ms: 9,
+     };
+ 
+-    let line = log::encode(&change);
++    let line = log::encode(&entry);
+     assert!(!line.contains('\n'), "one change, one line: {line:?}");
+     assert_eq!(
+         line.matches('\t').count(),
+-        4,
++        6,
+         "only the column separators are raw tabs: {line:?}"
+     );
+-    assert_eq!(log::decode(&line).unwrap(), change);
++    assert_eq!(log::decode(&line).unwrap(), entry);
+ }
+ 
+ #[test]
+@@ -61,4 +77,5 @@ fn log_rejects_a_malformed_line() {
+     assert!(log::decode("laptop\t1\tnot-a-number\tdoc\tbody=x").is_err());
+     assert!(log::decode("laptop\t1\t2").is_err());
+     assert!(log::decode("laptop\t1\t2\tdoc\tbody=dangling\\").is_err());
++    assert!(log::decode("laptop\t1\t2\tdoc\tbody=x\t0").is_err());
+ }
+diff --git a/tests/notesync/main.rs b/tests/notesync/main.rs
+index a134fe8..e5b0eef 100644
+--- a/tests/notesync/main.rs
++++ b/tests/notesync/main.rs
+@@ -2,6 +2,7 @@
+ //! into a single binary.
+ 
+ mod clock;
++mod hlc;
+ mod log;
+ mod merge;
+ mod sync;
+@@ -29,6 +30,7 @@ pub fn change(device: &str, seq: u64, timestamp_ms: u64, doc: &str, body: &str)
+         device: device.to_string(),
+         seq,
+         timestamp_ms,
++        counter: 0,
+         doc: doc.to_string(),
+         fields: fields(&[("body", body)]),
+     }

@@ -1,0 +1,22 @@
+diff --git a/src/sync.rs b/src/sync.rs
+index 190795c..1dbecd4 100644
+--- a/src/sync.rs
++++ b/src/sync.rs
+@@ -8,13 +8,14 @@ pub struct Synced {
+     pub received: usize,
+ }
+ 
+-/// Syncs this device with another: push the changes the other lacks, then
+-/// pull the changes this one lacks.
++/// Syncs this device with another: pull the changes this one lacks first, so
++/// local edits land on top of the other device's, then push the changes the
++/// other lacks.
+ pub fn sync<A: Clock, B: Clock>(
+     local: &mut Replica<A>,
+     other: &mut Replica<B>,
+ ) -> io::Result<Synced> {
+-    let sent = other.apply(local.changes_since(&other.seen()))?;
+     let received = local.apply(other.changes_since(&local.seen()))?;
++    let sent = other.apply(local.changes_since(&other.seen()))?;
+     Ok(Synced { sent, received })
+ }

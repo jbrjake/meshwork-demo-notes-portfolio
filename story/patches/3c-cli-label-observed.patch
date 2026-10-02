@@ -1,0 +1,21 @@
+diff --git a/src/cli.rs b/src/cli.rs
+index 9f26ae1..cf60c8e 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -88,13 +88,14 @@ pub fn run(args: &[String], stdin: &mut dyn Read, out: &mut dyn Write) -> Result
+ }
+ 
+ /// What `list` prints: each note's id, title and when it was last edited, as
+-/// of `now_ms`.
++/// of `now_ms`. The edit time is when this device stored the edit, by its own
++/// clock: a notesync timestamp can run ahead of every device's clock.
+ pub fn list<C: Clock>(device: &Replica<C>, now_ms: u64) -> Vec<String> {
+     note::docs(device)
+         .into_iter()
+         .map(|doc| {
+             let note = Note::from_doc(doc);
+-            let edited = label::edited_ago(now_ms, doc.timestamp_ms);
++            let edited = label::edited_ago(now_ms, doc.observed_at_ms());
+             format!("{}  {}  ({edited})", note.id, note.title)
+         })
+         .collect()

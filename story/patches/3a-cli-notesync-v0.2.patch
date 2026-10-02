@@ -1,0 +1,37 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index eaa77b9..2c7bcc5 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,7 +13,7 @@ name = "notes"
+ path = "src/main.rs"
+ 
+ [dependencies]
+-notesync = { package = "meshwork-demo-notes-sync", git = "https://github.com/jbrjake/meshwork-demo-notes-sync", tag = "v0.1.0" }
++notesync = { package = "meshwork-demo-notes-sync", git = "https://github.com/jbrjake/meshwork-demo-notes-sync", tag = "v0.2.0" }
+ 
+ # Full debug info for the crate and every dependency is what grows target/
+ # into the gigabytes; line tables keep backtraces readable.
+diff --git a/tests/notes/contract.rs b/tests/notes/contract.rs
+index e9cde3d..31d93de 100644
+--- a/tests/notes/contract.rs
++++ b/tests/notes/contract.rs
+@@ -10,7 +10,6 @@ const T: u64 = 1_790_000_000_000;
+ /// An edit beats the changes its author had already seen, even when the
+ /// other device's clock runs fast.
+ #[test]
+-#[ignore = "waits on @ASK@"]
+ fn causal_order_survives_fast_clock() {
+     let fast = ManualClock::new(T + 5 * MINUTE);
+     let truth = ManualClock::new(T);
+diff --git a/tests/notes/report.rs b/tests/notes/report.rs
+index e6ac1c1..951fcda 100644
+--- a/tests/notes/report.rs
++++ b/tests/notes/report.rs
+@@ -11,7 +11,6 @@ const DEVICES: [&str; 2] = ["laptop", "phone"];
+ /// again with its clock reading what the log recorded. A change it received
+ /// means the two devices synced, through the app's own sync.
+ #[test]
+-#[ignore = "waits on @ASK@"]
+ fn reported_gate_rewrite_survives() {
+     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/notes/fixtures/gate-rewrite");
+     let logs: Vec<Vec<Change>> = DEVICES

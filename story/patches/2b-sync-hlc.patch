@@ -1,0 +1,441 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 9a701d8..8068135 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## 0.2.0
++
++Breaking: a timestamp no longer means wall-clock time.
++
++- Changes are stamped with a hybrid logical clock: the later of the device's wall clock and the newest timestamp it has stored, plus a counter (`Change::counter`, `Change::stamp()`). An edit now always beats the changes its device had already stored, even when another device's clock runs fast. Edits made without seeing each other still race on timestamp.
++- A timestamp can run ahead of every device's clock. `Doc::observed_at_ms()` gives when this replica first stored the winning change, by its own clock; it is local and never sent.
++- The log gains two columns, the counter and the observed time (`log::Entry`). v0.1 logs still load: their counter is 0 and their observed time is their timestamp.
++
+ ## 0.1.0
+ 
+ The first release.
+diff --git a/Cargo.toml b/Cargo.toml
+index 7579f3f..6ad14af 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "meshwork-demo-notes-sync"
+-version = "0.1.0"
++version = "0.2.0"
+ edition = "2021"
+ description = "Document replication for apps that sync documents between devices."
+ publish = false
+diff --git a/README.md b/README.md
+index 14f5d8b..d2979ea 100644
+--- a/README.md
++++ b/README.md
+@@ -12,7 +12,7 @@ The contract is [docs/PROTOCOL.md](docs/PROTOCOL.md).
+ 
+ ```toml
+ [dependencies]
+-notesync = { package = "meshwork-demo-notes-sync", git = "https://github.com/jbrjake/meshwork-demo-notes-sync", tag = "v0.1.0" }
++notesync = { package = "meshwork-demo-notes-sync", git = "https://github.com/jbrjake/meshwork-demo-notes-sync", tag = "v0.2.0" }
+ ```
+ 
+ ```rust
+@@ -40,11 +40,13 @@ A replica's device id is its directory's name, kept in `<dir>/device`. `ManualCl
+ 
+ ## Conflicts
+ 
+-A change replaces a whole document. When two devices change the same document, the change with the later timestamp wins, and the timestamp is the authoring device's wall clock. Conflict resolution trusts device clocks: a device whose clock runs fast wins conflicts it should lose. Keep device clocks synced.
++A change replaces a whole document. When two devices change the same document, the change with the later timestamp wins. A timestamp is a hybrid logical clock reading: the later of the device's wall clock and the newest timestamp it has stored, plus a counter. So an edit always beats the changes its device had already stored, however fast another device's clock runs. Edits made without seeing each other still race on timestamp, and there a fast clock can still win.
++
++A timestamp can run ahead of every device's clock, so it does not say when an edit happened. `Doc::observed_at_ms()` does: when this replica first stored the winning change, by this replica's clock.
+ 
+ ## On disk
+ 
+-`<dir>/changes.log` holds one change per line, in the order the replica stored it, whether it made the change or received it. Columns are tab-separated: device, sequence number, timestamp in milliseconds, document id, and the fields as `key=value` pairs joined by `;`. Tab, newline, backslash, `;` and `=` are backslash-escaped.
++`<dir>/changes.log` holds one change per line, in the order the replica stored it, whether it made the change or received it. Columns are tab-separated: device, sequence number, timestamp in milliseconds, document id, the fields as `key=value` pairs joined by `;`, the timestamp's counter, and when this replica observed the change. Tab, newline, backslash, `;` and `=` are backslash-escaped. Logs written by v0.1 have only the first five columns and still load.
+ 
+ ## Develop
+ 
+diff --git a/docs/PROTOCOL.md b/docs/PROTOCOL.md
+index 10b2769..548e9a9 100644
+--- a/docs/PROTOCOL.md
++++ b/docs/PROTOCOL.md
+@@ -4,10 +4,13 @@
+ A change replaces one whole document: its id and every field, with the device that made it, that device's sequence number, and a timestamp.
+ 
+ ## Change timestamps {#sp-change-timestamp}
+-A change's timestamp is the authoring device's wall-clock time when the change was made, in milliseconds since the Unix epoch.
++A change's timestamp is a hybrid logical clock reading: the later of the authoring device's wall clock and the newest timestamp that device has stored, plus a counter that breaks ties. A change therefore sorts after every change its author had stored when making it. The timestamp is not the time the change was made and can run ahead of any device's clock; to show when something happened, use observed_at.
+ 
+ ## Conflict resolution {#sp-conflict-resolution}
+-When two changes replace the same document, the one with the higher timestamp wins; equal timestamps break on device id. Resolution is order-independent: replicas that have stored the same changes agree. Device clocks are trusted, so a device whose clock runs fast wins conflicts it should lose.
++When two changes replace the same document, the one with the higher timestamp wins; equal timestamps break on device id. Resolution is order-independent: replicas that have stored the same changes agree. A change always beats the changes its author had stored; changes made without seeing each other still race on timestamp, so a fast clock can win that race.
+ 
+ ## Sync {#sp-sync}
+ Replicas exchange the changes the other has not seen, by version vector. Moving changes between replicas is the caller's concern.
++
++## Observed time {#sp-observed-at}
++observed_at is when this replica first stored a change, by this replica's clock. It is local and never sent between replicas. Logs written by v0.1 have no observed column; their observed_at is their timestamp.
+diff --git a/src/change.rs b/src/change.rs
+index bda88c8..4ca9be7 100644
+--- a/src/change.rs
++++ b/src/change.rs
+@@ -10,36 +10,83 @@ pub struct Change {
+     pub device: String,
+     /// The device's sequence number for this change, counting from 1.
+     pub seq: u64,
+-    /// When the change was made, by the device's clock, in milliseconds
+-    /// since the Unix epoch.
++    /// The hybrid logical clock reading's milliseconds: the later of the
++    /// authoring device's wall clock and the newest timestamp it had stored.
++    /// Not the time the change was made; it can run ahead of every device's
++    /// clock.
+     pub timestamp_ms: u64,
++    /// Breaks ties between changes with the same `timestamp_ms`.
++    pub counter: u32,
+     /// The id of the document the change replaces.
+     pub doc: String,
+     /// Every field of the document after the change.
+     pub fields: Fields,
+ }
+ 
++impl Change {
++    /// The change's hybrid logical clock reading, in sort order.
++    pub fn stamp(&self) -> (u64, u32) {
++        (self.timestamp_ms, self.counter)
++    }
++}
++
+ /// A document as its winning change left it.
+-#[derive(Clone, Debug, PartialEq, Eq)]
++#[derive(Clone, Debug)]
+ pub struct Doc {
+     pub id: String,
+     pub fields: Fields,
+     /// The winning change's timestamp.
+     pub timestamp_ms: u64,
++    /// The winning change's counter.
++    pub counter: u32,
+     /// The device that made the winning change.
+     pub device: String,
+     /// That device's sequence number for the winning change.
+     pub seq: u64,
++    observed_ms: u64,
+ }
+ 
+ impl Doc {
+-    pub(crate) fn from_change(change: &Change) -> Self {
++    pub(crate) fn from_change(change: &Change, observed_ms: u64) -> Self {
+         Self {
+             id: change.doc.clone(),
+             fields: change.fields.clone(),
+             timestamp_ms: change.timestamp_ms,
++            counter: change.counter,
+             device: change.device.clone(),
+             seq: change.seq,
++            observed_ms,
+         }
+     }
++
++    /// When this replica first stored the winning change, by this replica's
++    /// clock. Use it to show when something happened. It is local: replicas
++    /// never send it, and two replicas holding the same document can differ.
++    pub fn observed_at_ms(&self) -> u64 {
++        self.observed_ms
++    }
+ }
++
++/// Two replicas agree on a document when the same change won; when each
++/// observed it is local, so it is not compared.
++impl PartialEq for Doc {
++    fn eq(&self, other: &Self) -> bool {
++        (
++            &self.id,
++            &self.fields,
++            self.timestamp_ms,
++            self.counter,
++            &self.device,
++            self.seq,
++        ) == (
++            &other.id,
++            &other.fields,
++            other.timestamp_ms,
++            other.counter,
++            &other.device,
++            other.seq,
++        )
++    }
++}
++
++impl Eq for Doc {}
+diff --git a/src/log.rs b/src/log.rs
+index 37e0f41..f195519 100644
+--- a/src/log.rs
++++ b/src/log.rs
+@@ -1,17 +1,29 @@
+ //! The change log: one change per line, in the order the replica stored it.
+ //!
+-//! Columns are tab-separated: device, seq, timestamp_ms, doc, fields. Fields
+-//! are `key=value` pairs joined by `;`. Tab, newline, backslash, `;` and `=`
+-//! are backslash-escaped wherever they appear, so a raw tab is always a
+-//! column separator and a raw newline always ends the change.
++//! Columns are tab-separated: device, seq, timestamp_ms, doc, fields,
++//! counter, observed_ms. Fields are `key=value` pairs joined by `;`. Tab,
++//! newline, backslash, `;` and `=` are backslash-escaped wherever they
++//! appear, so a raw tab is always a column separator and a raw newline always
++//! ends the change. Lines written by v0.1 carry only the first five columns;
++//! they read with counter 0 and observed_ms equal to their timestamp.
+ 
+ use crate::change::{Change, Fields};
+ use std::fs::{File, OpenOptions};
+ use std::io::{self, BufRead, BufReader, Write};
+ use std::path::Path;
++use std::str::FromStr;
+ 
+-/// One change as one log line, without the newline.
+-pub fn encode(change: &Change) -> String {
++/// One stored change and when this replica observed it.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct Entry {
++    pub change: Change,
++    /// When this replica first stored the change, by its own clock.
++    pub observed_ms: u64,
++}
++
++/// One entry as one log line, without the newline.
++pub fn encode(entry: &Entry) -> String {
++    let change = &entry.change;
+     let fields = change
+         .fields
+         .iter()
+@@ -19,38 +31,65 @@ pub fn encode(change: &Change) -> String {
+         .collect::<Vec<_>>()
+         .join(";");
+     format!(
+-        "{}\t{}\t{}\t{}\t{}",
++        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+         escape(&change.device),
+         change.seq,
+         change.timestamp_ms,
+         escape(&change.doc),
+-        fields
++        fields,
++        change.counter,
++        entry.observed_ms
+     )
+ }
+ 
+-/// Parses one log line.
+-pub fn decode(line: &str) -> io::Result<Change> {
++/// Parses one log line, from v0.1 or later.
++pub fn decode(line: &str) -> io::Result<Entry> {
+     let columns: Vec<&str> = line.split('\t').collect();
+-    let [device, seq, timestamp_ms, doc, fields] = columns[..] else {
+-        return Err(invalid(format!("expected 5 columns: {line:?}")));
++    let (device, seq, timestamp_ms, doc, fields, counter, observed_ms) = match columns[..] {
++        [device, seq, timestamp_ms, doc, fields] => {
++            (device, seq, timestamp_ms, doc, fields, None, None)
++        }
++        [device, seq, timestamp_ms, doc, fields, counter, observed_ms] => (
++            device,
++            seq,
++            timestamp_ms,
++            doc,
++            fields,
++            Some(counter),
++            Some(observed_ms),
++        ),
++        _ => return Err(invalid(format!("expected 5 or 7 columns: {line:?}"))),
+     };
+-    Ok(Change {
+-        device: unescape(device)?,
+-        seq: number(seq)?,
+-        timestamp_ms: number(timestamp_ms)?,
+-        doc: unescape(doc)?,
+-        fields: decode_fields(fields)?,
++    let timestamp_ms = number(timestamp_ms)?;
++    Ok(Entry {
++        change: Change {
++            device: unescape(device)?,
++            seq: number(seq)?,
++            timestamp_ms,
++            counter: counter.map(number).transpose()?.unwrap_or(0),
++            doc: unescape(doc)?,
++            fields: decode_fields(fields)?,
++        },
++        observed_ms: observed_ms.map(number).transpose()?.unwrap_or(timestamp_ms),
+     })
+ }
+ 
+-/// Appends one change to the log at `path`, creating the file if needed.
+-pub fn append(path: &Path, change: &Change) -> io::Result<()> {
++/// Appends one entry to the log at `path`, creating the file if needed.
++pub fn append(path: &Path, entry: &Entry) -> io::Result<()> {
+     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+-    writeln!(file, "{}", encode(change))
++    writeln!(file, "{}", encode(entry))
+ }
+ 
+ /// Every change in the log at `path`, in log order. A missing log is empty.
+ pub fn read(path: &Path) -> io::Result<Vec<Change>> {
++    Ok(read_entries(path)?
++        .into_iter()
++        .map(|entry| entry.change)
++        .collect())
++}
++
++/// Every entry in the log at `path`, in log order. A missing log is empty.
++pub fn read_entries(path: &Path) -> io::Result<Vec<Entry>> {
+     let file = match File::open(path) {
+         Ok(file) => file,
+         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+@@ -129,7 +168,7 @@ fn split_unescaped(text: &str, sep: char) -> Vec<&str> {
+     parts
+ }
+ 
+-fn number(column: &str) -> io::Result<u64> {
++fn number<N: FromStr>(column: &str) -> io::Result<N> {
+     column
+         .parse()
+         .map_err(|_| invalid(format!("expected a number: {column:?}")))
+diff --git a/src/merge.rs b/src/merge.rs
+index 5539ca4..63dc3e3 100644
+--- a/src/merge.rs
++++ b/src/merge.rs
+@@ -1,13 +1,17 @@
+-//! Conflict resolution: the last writer wins, by timestamp.
++//! Conflict resolution: the last writer wins, by hybrid logical clock.
+ 
+ use crate::change::{Change, Doc};
+ 
+ /// Whether `change` replaces `current` as its document's state.
+ ///
+-/// The higher timestamp wins. Equal timestamps break on device id, then on
+-/// sequence number, so every replica picks the same winner whatever order it
+-/// stored the changes in.
++/// The higher timestamp wins, counter included. Equal timestamps break on
++/// device id, then on sequence number, so every replica picks the same
++/// winner whatever order it stored the changes in.
+ pub(crate) fn wins(change: &Change, current: &Doc) -> bool {
+-    (change.timestamp_ms, change.device.as_str(), change.seq)
+-        > (current.timestamp_ms, current.device.as_str(), current.seq)
++    (change.stamp(), change.device.as_str(), change.seq)
++        > (
++            (current.timestamp_ms, current.counter),
++            current.device.as_str(),
++            current.seq,
++        )
+ }
+diff --git a/src/replica.rs b/src/replica.rs
+index b1abce6..4d84efe 100644
+--- a/src/replica.rs
++++ b/src/replica.rs
+@@ -1,7 +1,8 @@
+ use crate::change::{Change, Doc, Fields};
+ use crate::clock::Clock;
++use crate::log::{self, Entry};
++use crate::merge;
+ use crate::vv::VersionVector;
+-use crate::{log, merge};
+ use std::collections::BTreeMap;
+ use std::fs;
+ use std::io;
+@@ -18,6 +19,8 @@ pub struct Replica<C: Clock> {
+     changes: Vec<Change>,
+     docs: BTreeMap<String, Doc>,
+     seen: VersionVector,
++    /// The newest timestamp stored, counter included.
++    newest: (u64, u32),
+ }
+ 
+ impl<C: Clock> Replica<C> {
+@@ -33,9 +36,10 @@ impl<C: Clock> Replica<C> {
+             changes: Vec::new(),
+             docs: BTreeMap::new(),
+             seen: VersionVector::new(),
++            newest: (0, 0),
+         };
+-        for change in log::read(&replica.log_path())? {
+-            replica.remember(change);
++        for entry in log::read_entries(&replica.log_path())? {
++            replica.remember(entry);
+         }
+         Ok(replica)
+     }
+@@ -44,16 +48,26 @@ impl<C: Clock> Replica<C> {
+         &self.device
+     }
+ 
+-    /// Replaces document `doc` with `fields`, stamped by this device's clock.
++    /// Replaces document `doc` with `fields`, stamped by a hybrid logical
++    /// clock: this device's wall clock, or just past the newest timestamp it
++    /// has stored if that is later. The change sorts after every change this
++    /// replica has stored.
+     pub fn put(&mut self, doc: &str, fields: Fields) -> io::Result<Change> {
++        let wall = self.clock.now_ms();
++        let (timestamp_ms, counter) = if wall > self.newest.0 {
++            (wall, 0)
++        } else {
++            (self.newest.0, self.newest.1 + 1)
++        };
+         let change = Change {
+             device: self.device.clone(),
+             seq: self.seen.get(&self.device) + 1,
+-            timestamp_ms: self.clock.now_ms(),
++            timestamp_ms,
++            counter,
+             doc: doc.to_string(),
+             fields,
+         };
+-        self.store(change.clone())?;
++        self.store(change.clone(), wall)?;
+         Ok(change)
+     }
+ 
+@@ -101,7 +115,8 @@ impl<C: Clock> Replica<C> {
+                     ),
+                 ));
+             }
+-            self.store(change)?;
++            let observed_ms = self.clock.now_ms();
++            self.store(change, observed_ms)?;
+             new += 1;
+         }
+         Ok(new)
+@@ -111,21 +126,30 @@ impl<C: Clock> Replica<C> {
+         self.dir.join("changes.log")
+     }
+ 
+-    fn store(&mut self, change: Change) -> io::Result<()> {
+-        log::append(&self.log_path(), &change)?;
+-        self.remember(change);
++    fn store(&mut self, change: Change, observed_ms: u64) -> io::Result<()> {
++        let entry = Entry {
++            change,
++            observed_ms,
++        };
++        log::append(&self.log_path(), &entry)?;
++        self.remember(entry);
+         Ok(())
+     }
+ 
+-    fn remember(&mut self, change: Change) {
++    fn remember(&mut self, entry: Entry) {
++        let Entry {
++            change,
++            observed_ms,
++        } = entry;
+         self.seen.observe(&change);
++        self.newest = self.newest.max(change.stamp());
+         let replaces = self
+             .docs
+             .get(&change.doc)
+             .is_none_or(|current| merge::wins(&change, current));
+         if replaces {
+             self.docs
+-                .insert(change.doc.clone(), Doc::from_change(&change));
++                .insert(change.doc.clone(), Doc::from_change(&change, observed_ms));
+         }
+         self.changes.push(change);
+     }
