@@ -4,7 +4,7 @@ title: Generate the gate-rewrite fixture from two notesync v0.1.0 replicas
 category: story
 seq: 20
 verify: "all(exists story/fixtures/gate-rewrite/laptop-changes.log, exists story/fixtures/gate-rewrite/phone-changes.log)"
-status: open
+status: done
 created: 2026-10-02T17:12Z
 needs: [meshwork-demo-notes-sync#sy-80ke7zy]
 ---
@@ -20,3 +20,5 @@ The phone's log then shows v2 stored before v3, while v3 carries the lower stamp
 
 ## log
 - 2026-10-02T17:12Z created
+- 2026-10-02T17:31Z open→doing — claimed by claude (602c381b-d7db-491e-8df6-85682e6152ed)
+- 2026-10-02T17:32Z doing→done — verify exit 0 @ e8c3c1e+1
