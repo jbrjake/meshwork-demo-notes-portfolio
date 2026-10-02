@@ -3,6 +3,7 @@ name = "fixture-gen"
 version = "0.0.0"
 edition = "2021"
 description = "Writes the gate-rewrite fixture: two devices' change logs after the reported lost edit."
+license = "MIT"
 publish = false
 
 [dependencies]
