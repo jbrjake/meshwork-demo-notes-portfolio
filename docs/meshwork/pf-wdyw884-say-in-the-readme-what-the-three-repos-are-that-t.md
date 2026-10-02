@@ -4,7 +4,7 @@ title: "Say in the README what the three repos are, that the sessions are staged
 category: story
 seq: 70
 needs: [pf-2fkwhgm]
-verify: contains README.md /story\/replay\.sh/
+verify: "all(exists README.md, contains README.md /story\\/replay\\.sh/)"
 status: open
 created: 2026-10-02T17:12Z
 ---

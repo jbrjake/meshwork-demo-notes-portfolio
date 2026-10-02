@@ -4,7 +4,7 @@ title: Write story/replay.sh — perform the three sessions and assert every ref
 category: story
 seq: 50
 needs: [pf-p0c5asg, pf-57vxppd]
-verify: contains story/replay.sh /mw_refused/
+verify: "all(exists story/replay.sh, contains story/replay.sh /mw_refused/)"
 status: open
 created: 2026-10-02T17:12Z
 ---

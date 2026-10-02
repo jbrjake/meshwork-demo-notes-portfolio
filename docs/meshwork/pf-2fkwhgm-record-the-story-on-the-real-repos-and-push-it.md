@@ -4,7 +4,7 @@ title: Record the story on the real repos and push it
 category: story
 seq: 60
 needs: [pf-1j0dnf1]
-verify: contains story/recording.md /story\/3-resolved/
+verify: "all(exists story/recording.md, contains story/recording.md /story\\/3-resolved/)"
 status: open
 created: 2026-10-02T17:12Z
 ---
